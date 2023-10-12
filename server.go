@@ -3,68 +3,71 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"time"
 	"os"
+	"sync"
 
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-const (
-	brokerAddress  = "redpanda:9092"
-	commandsTopic  = "commands"
-	repliesTopic   = "replies"
+var (
+	seeds         = []string{"redpanda:9092"}
+	consumeTopic  = "commands"
+	produceTopic  = "replies"
+	consumerGroup = "test-server"
 )
 
 func main() {
-	logger := log.New(os.Stdout, "[kafka] ", 0)
-	// Create a new reader for the commands topic
-	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   []string{brokerAddress},
-		Topic:     commandsTopic,
-		Partition: 0,
-		MinBytes:  1,
-		MaxBytes:  10e6, // 10MB
-		MaxWait:   60000 * time.Millisecond,
-		Logger:    logger,
-	})
+	cl, err := kgo.NewClient(
+		kgo.SeedBrokers(seeds...),
+		kgo.ConsumerGroup(consumerGroup),
+		kgo.ConsumeTopics(consumeTopic),
+		kgo.DefaultProduceTopic(produceTopic),
+		kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelInfo, nil)),
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer cl.Close()
 
-	// Create a new writer for the replies topic
-	w := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:      []string{brokerAddress},
-		Topic:        repliesTopic,
-		BatchSize:    100,
-    BatchTimeout: 10 * time.Millisecond,
-		Logger:       logger,
-	})
+	ctx := context.Background()
 
+	// Consuming messages from a topic
 	for {
-		// Read message from commands topic
-		m, err := r.ReadMessage(context.Background())
-		if err != nil {
-      log.Fatalf("failed to read message: %v", err)
-    }
-
-		// Extract zilla:correlation-id header
-		var correlationID string
-		for _, header := range m.Headers {
-			if header.Key == "zilla:correlation-id" {
-				correlationID = string(header.Value)
-				break
-			}
+		fetches := cl.PollFetches(ctx)
+		if errs := fetches.Errors(); len(errs) > 0 {
+			panic(fmt.Sprint(errs))
 		}
 
-		if correlationID != "" {
-			// Create and write response message to replies topic
-			responseHeaders := []kafka.Header{
-				{Key: "zilla:correlation-id", Value: []byte(correlationID)},
+		iter := fetches.RecordIter()
+		for !iter.Done() {
+			incomingRecord := iter.Next()
+
+			// Extract zilla:correlation-id header
+			var correlationID string
+			for _, header := range incomingRecord.Headers {
+				if header.Key == "zilla:correlation-id" {
+					correlationID = string(header.Value)
+					break
+				}
 			}
-			responseMessage := kafka.Message{
-				Value:   []byte("ok"),
-				Headers: responseHeaders,
-			}
-			if err := w.WriteMessages(context.Background(), responseMessage); err != nil {
-				log.Fatalf("failed to write message: %v", err)
+
+			// Producing messages
+			if correlationID != "" {
+				var wg sync.WaitGroup
+				wg.Add(1)
+				outgoingRecord := &kgo.Record{
+					Value: []byte("ok\n"),
+					Headers: []kgo.RecordHeader{
+						{Key: "zilla:correlation-id", Value: []byte(correlationID)},
+					},
+				}
+				cl.Produce(ctx, outgoingRecord, func(_ *kgo.Record, err error) {
+					defer wg.Done()
+					if err != nil {
+						fmt.Printf("record had a produce error: %v\n", err)
+					}
+				})
+				wg.Wait()
 			}
 		}
 	}
