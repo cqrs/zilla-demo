@@ -39,8 +39,6 @@ func main() {
 	})
 
 	for {
-		var startTime time.Time
-
 		// Read message from commands topic
 		m, err := r.ReadMessage(context.Background())
 		if err != nil {
@@ -61,7 +59,6 @@ func main() {
 			responseHeaders := []kafka.Header{
 				{Key: "zilla:correlation-id", Value: []byte(correlationID)},
 			}
-			startTime = time.Now()
 			responseMessage := kafka.Message{
 				Value:   []byte("ok"),
 				Headers: responseHeaders,
@@ -69,13 +66,6 @@ func main() {
 			if err := w.WriteMessages(context.Background(), responseMessage); err != nil {
 				log.Fatalf("failed to write message: %v", err)
 			}
-
-			// Capture the end time and calculate the duration
-			endTime := time.Now()
-			duration := endTime.Sub(startTime)
-
-			// Log the duration
-			fmt.Printf("Sent response for correlation ID %s, duration: %v\n", correlationID, duration)
 		}
 	}
 }
