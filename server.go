@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"os"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -16,19 +17,25 @@ const (
 )
 
 func main() {
+	logger := log.New(os.Stdout, "[kafka] ", 0)
 	// Create a new reader for the commands topic
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{brokerAddress},
 		Topic:     commandsTopic,
 		Partition: 0,
-		MinBytes:  10e3, // 10KB
+		MinBytes:  1,
 		MaxBytes:  10e6, // 10MB
+		MaxWait:   60000 * time.Millisecond,
+		Logger:    logger,
 	})
 
 	// Create a new writer for the replies topic
 	w := kafka.NewWriter(kafka.WriterConfig{
-		Brokers: []string{brokerAddress},
-		Topic:   repliesTopic,
+		Brokers:      []string{brokerAddress},
+		Topic:        repliesTopic,
+		BatchSize:    100,
+    BatchTimeout: 10 * time.Millisecond,
+		Logger:       logger,
 	})
 
 	for {
@@ -38,9 +45,6 @@ func main() {
 		m, err := r.ReadMessage(context.Background())
 		if err != nil {
       log.Fatalf("failed to read message: %v", err)
-    } else {
-			// Capture the start time immediately after reading a message
-			startTime = time.Now()
     }
 
 		// Extract zilla:correlation-id header
@@ -57,6 +61,7 @@ func main() {
 			responseHeaders := []kafka.Header{
 				{Key: "zilla:correlation-id", Value: []byte(correlationID)},
 			}
+			startTime = time.Now()
 			responseMessage := kafka.Message{
 				Value:   []byte("ok"),
 				Headers: responseHeaders,
