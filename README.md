@@ -48,3 +48,12 @@ grpcurl -plaintext -proto proto/echo.proto  -d '{"message":"Hello World"}' -H 'i
 
 ghz --config bench.json --proto proto/echo.proto --call example.EchoService/EchoBidiStream localhost:9090
 ```
+
+## Usage
+
+```sh
+curl -X POST http://localhost:9090/command -H "Idempotency-Key: 73eb15c7-d554-4bf5-adab-1834f6b3c015"
+
+curl -X POST http://localhost:9090/command -H "Idempotency-Key: 135e4567-e89b-12d3-a456-426614174264"
+curl -X POST http://localhost:9090/command -H "Idempotency-Key: 135e4567-e89b-12d3-a456-426614174264"
+```
