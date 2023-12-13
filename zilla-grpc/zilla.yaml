@@ -1,4 +1,4 @@
-name: async_cqrs
+name: sync_grpc
 
 bindings:
   tcp_server:
@@ -13,52 +13,35 @@ bindings:
     type: http
     kind: server
     options:
+      versions:
+        - h2
       access-control:
         policy: cross-origin
-    routes:
-      - when:
-          - headers:
-              :method: GET
-              :path: /query
-        exit: sse_server
-      - when:
-          - headers:
-              :method: POST
-              :path: /command
-        exit: http_kafka_proxy
+    exit: grpc_server
 
-  sse_server:
-    type: sse
+  grpc_server:
+    type: grpc
     kind: server
-    exit: sse_kafka_proxy
+    options:
+      services:
+        - proto/echo.proto
+    routes:
+      - when:
+          - method: example.EchoService/*
+        exit: grpc_kafka_mapping
 
-  sse_kafka_proxy:
-    type: sse-kafka
+  grpc_kafka_mapping:
+    type: grpc-kafka
     kind: proxy
     routes:
       - when:
-          - path: /query
-        exit: kafka_cache_client
-        with:
-          event:
-            id: '["${base64(key)}","${etag}"]'
-          topic: queries
-
-  http_kafka_proxy:
-    type: http-kafka
-    kind: proxy
-    routes:
-      - when:
-          - method: POST
-            path: /command
+          - method: example.EchoService/*
         exit: kafka_cache_client
         with:
           capability: produce
-          reply-to: replies
-          topic: commands
-          key: ${idempotencyKey}
-          overrides:
-            zilla:domain-model: SampleCommand
+          topic: echo-messages
+          acks: leader_only
+          reply-to: echo-messages
 
   kafka_cache_client:
     type: kafka
@@ -70,7 +53,7 @@ bindings:
     kind: cache_server
     options:
       bootstrap:
-        - replies
+        - echo-messages
     exit: kafka_client
 
   kafka_client:

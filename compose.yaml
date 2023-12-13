@@ -102,7 +102,9 @@ services:
       - -v
       - -e
     volumes:
-      - ./zilla:/etc/zilla:ro
+      # Choose 1
+      # - ./zilla-http:/etc/zilla:ro
+      - ./zilla-grpc:/etc/zilla:ro
     ports:
       - 9090:9090
 
@@ -120,7 +122,7 @@ services:
 
   server:
     <<: *go
-    command: run ./server.go
+    command: run ./zilla-http/server.go
 
 volumes:
   redpanda: {}
